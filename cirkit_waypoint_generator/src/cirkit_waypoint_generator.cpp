@@ -1,5 +1,6 @@
 #include <ros/ros.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <sensor_msgs/Joy.h>
 #include <interactive_markers/interactive_marker_server.h>
 #include <interactive_markers/menu_handler.h>
 #include <nav_msgs/Odometry.h>
@@ -33,12 +34,13 @@ public:
     rate_(5)
   {
     ros::NodeHandle n("~");
-    n.param("dist_th", dist_th_, 1.0); // distance threshold [m]
+    n.param("dist_th", dist_th_, 9.0); // distance threshold [m]
     n.param("yaw_th", yaw_th_, 45.0*3.1415/180.0); // yaw threshold [rad]
-    odom_sub_ = nh_.subscribe<geometry_msgs::PoseWithCovarianceStamped>("/amcl_pose",
+    odom_sub_ = nh_.subscribe<geometry_msgs::PoseWithCovarianceStamped>("/input/odom",
                               1,
                               &CirkitWaypointGenerator::addWaypoint, this);
     clicked_sub_ = nh_.subscribe("clicked_point", 1, &CirkitWaypointGenerator::clickedPointCallback, this);
+    joy_sub_ = nh_.subscribe("/joy", 1, &CirkitWaypointGenerator::joyCallback, this);
     reach_marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/reach_threshold_markers", 1);
     waypoints_pub_ = nh_.advertise<cirkit_waypoint_manager_msgs::WaypointArray>("/waypoints", 1);
     waypoint_box_count_ = 0;
@@ -210,6 +212,7 @@ public:
 
   void addWaypoint(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& amcl_pose)
   {
+    curr_pose_ = amcl_pose->pose;
     double diff_dist = calculateDistance(amcl_pose->pose);
     double diff_yaw = calculateAngle(amcl_pose->pose);
     if(diff_dist > dist_th_ || diff_yaw > yaw_th_)
@@ -224,6 +227,14 @@ public:
     reach_marker_pub_.publish(reach_threshold_markers_);
     waypoints_pub_.publish(waypoints_);
     server->applyChanges();
+  }
+  void joyCallback(const sensor_msgs::Joy &joy_msg)
+  {
+    if (joy_msg.buttons[0] == 1){
+      makeWaypointMarker(curr_pose_, 0, 3.0);
+      server->applyChanges();
+      last_pose_ = curr_pose_;
+    }
   }
 
   void clickedPointCallback(const geometry_msgs::PointStamped &point)
@@ -268,9 +279,11 @@ private:
   ros::NodeHandle nh_;
   ros::Rate rate_;
   ros::Subscriber odom_sub_;
+  ros::Subscriber joy_sub_;
   ros::Subscriber clicked_sub_;
   ros::Publisher reach_marker_pub_;
   ros::Publisher waypoints_pub_;
+  geometry_msgs::PoseWithCovariance curr_pose_;
   geometry_msgs::PoseWithCovariance last_pose_;
   cirkit_waypoint_manager_msgs::WaypointArray waypoints_;
   double dist_th_;
